@@ -73,11 +73,11 @@ export class FlaskEcsCdkStack extends cdk.Stack {
       allowAllOutbound: true
     });
 
-    // Allow inbound traffic on port 5000 from anywhere
+    // Allow inbound traffic on port 5000 from specific IP only
     ecsSecurityGroup.addIngressRule(
-      ec2.Peer.anyIpv4(),
+      ec2.Peer.ipv4('1.1.1.1/32'),
       ec2.Port.tcp(5000),
-      'Allow HTTP traffic on port 5000'
+      'Allow HTTP traffic on port 5000 from specific IP'
     );
 
     // ECS Service
