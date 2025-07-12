@@ -105,12 +105,12 @@ export class FlaskEcsCdkStack extends cdk.Stack {
       capacityProviderStrategies: [
         {
           capacityProvider: 'FARGATE',
-          weight: 1,
+          weight: 0,
           base: 1
         },
         {
           capacityProvider: 'FARGATE_SPOT',
-          weight: 4,
+          weight: 1,
           base: 0
         }
       ],
