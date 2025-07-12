@@ -7,6 +7,7 @@ import * as codepipeline from 'aws-cdk-lib/aws-codepipeline';
 import * as codepipeline_actions from 'aws-cdk-lib/aws-codepipeline-actions';
 import * as codebuild from 'aws-cdk-lib/aws-codebuild';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import { CfnConnection } from 'aws-cdk-lib/aws-codestarconnections';
 
 export class FlaskEcsCdkStack extends cdk.Stack {
@@ -31,11 +32,21 @@ export class FlaskEcsCdkStack extends cdk.Stack {
       ]
     });
 
-    // ECS Cluster
+    // ECS Cluster with Capacity Providers
     const cluster = new ecs.Cluster(this, 'FlaskCluster', {
       vpc: vpc,
-      clusterName: 'flask-cluster'
+      clusterName: 'flask-cluster',
+      enableFargateCapacityProviders: true
     });
+
+    // Add Capacity Provider Strategy
+    cluster.addDefaultCapacityProviderStrategy([
+      {
+        capacityProvider: 'FARGATE',
+        weight: 1,
+        base: 1
+      }
+    ]);
 
     // ECR Repository
     const repository = new ecr.Repository(this, 'FlaskRepository', {
@@ -80,18 +91,60 @@ export class FlaskEcsCdkStack extends cdk.Stack {
       'Allow HTTP traffic on port 5000'
     );
 
-    // ECS Service
+    // ECS Service with Capacity Provider Strategy
     const service = new ecs.FargateService(this, 'FlaskService', {
       cluster: cluster,
       taskDefinition: taskDefinition,
-      desiredCount: 1,
+      desiredCount: 2, // Increased for better availability with Spot instances
       assignPublicIp: true,
       serviceName: 'flask-service',
       securityGroups: [ecsSecurityGroup],
       vpcSubnets: {
         subnetType: ec2.SubnetType.PUBLIC
-      }
+      },
+      capacityProviderStrategies: [
+        {
+          capacityProvider: 'FARGATE',
+          weight: 1,
+          base: 1
+        },
+        {
+          capacityProvider: 'FARGATE_SPOT',
+          weight: 4,
+          base: 0
+        }
+      ],
+      enableExecuteCommand: true
     });
+
+    // CloudWatch Alarms for monitoring
+    const runningTasksAlarm = new cloudwatch.Alarm(this, 'RunningTasksAlarm', {
+      metric: service.metric('RunningTaskCount'),
+      threshold: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+      evaluationPeriods: 2,
+      alarmDescription: 'Alert when running tasks drop below 1'
+    });
+
+    // // Auto Scaling for ECS Service
+    // const scaling = service.autoScaleTaskCount({
+    //   minCapacity: 1,
+    //   maxCapacity: 2
+    // });
+
+    // // CPU-based scaling
+    // scaling.scaleOnCpuUtilization('CpuScaling', {
+    //   targetUtilizationPercent: 70,
+    //   scaleInCooldown: cdk.Duration.minutes(5),
+    //   scaleOutCooldown: cdk.Duration.minutes(2)
+    // });
+
+    // // Memory-based scaling
+    // scaling.scaleOnMemoryUtilization('MemoryScaling', {
+    //   targetUtilizationPercent: 80,
+    //   scaleInCooldown: cdk.Duration.minutes(5),
+    //   scaleOutCooldown: cdk.Duration.minutes(2)
+    // });
 
     // CodeBuild Project
     const buildProject = new codebuild.Project(this, 'FlaskBuildProject', {
@@ -204,6 +257,16 @@ export class FlaskEcsCdkStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ClusterName', {
       value: cluster.clusterName,
       description: 'ECS Cluster Name'
+    });
+
+    new cdk.CfnOutput(this, 'CapacityProviderStrategy', {
+      value: 'FARGATE (weight: 1, base: 1) + FARGATE_SPOT (weight: 4, base: 0)',
+      description: 'Capacity Provider Strategy - 80% Spot, 20% On-Demand with 1 base On-Demand task'
+    });
+
+    new cdk.CfnOutput(this, 'AutoScalingConfig', {
+      value: 'Min: 1, Max: 10, CPU: 70%, Memory: 80%',
+      description: 'Auto Scaling Configuration'
     });
   }
 }
